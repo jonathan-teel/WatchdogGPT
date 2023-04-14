@@ -5,6 +5,7 @@ import time
 import logging
 import threading
 import openai
+import concurrent.futures
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
@@ -13,15 +14,28 @@ load_dotenv()
 LOG_FILE_PATH = os.getenv("LOG_FILE_PATH")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 LOG_FORMAT = os.getenv("LOG_FILE_FORMAT")
+# Default model is gpt-3.5-turbo
 OPENAI_API_MODEL = os.getenv("OPENAI_API_MODEL", "gpt-3.5-turbo")
+# Default flush interval is 60 seconds
+BUFFER_FLUSH_INTERVAL = int(os.getenv("BUFFER_FLUSH_INTERVAL", 60))  
+# Default buffer size limit is 1000 entries
+BUFFER_SIZE_LIMIT = int(os.getenv("BUFFER_SIZE_LIMIT", 1000))  
+
+# Determines the number of worker threads used for parallel processing. Adjust based on the available CPU resources and the desired level of concurrency
+MAX_WORKERS = 4
+# Adjust chunk_size based on desired granularity
+CHUNK_SIZE = 500
 
 class WatchdogGPT(FileSystemEventHandler):
 
     def __init__(self):
         self.buffered_entries = []
-        self.MAX_TOKENS = 2048  # Tokens sent + tokens returned limit
+        self.MAX_TOKENS = 1000  # Tokens sent + tokens returned limit
         self.token_count = 0
         self.print_to_cli("Info:", "Starting WatchdogGPT")
+        self.buffer_flush_timer = threading.Timer(BUFFER_FLUSH_INTERVAL, self.flush_buffer)
+        self.buffer_flush_timer.start()
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) 
 
     def on_modified(self, event):
         if not event.is_directory and event.src_path == LOG_FILE_PATH:
@@ -30,20 +44,14 @@ class WatchdogGPT(FileSystemEventHandler):
     def process_log_update(self):
         new_entries = self.read_buffered_log_entries()
 
-       # self.print_to_cli("Current Buffer Size:", str(self.token_count))
-
         for entry in new_entries:
             preprocessed_entry = self.preprocess_log_entry(entry, format=LOG_FORMAT)
 
             if preprocessed_entry:
                 entry_tokens = len(entry.split())
 
-                if self.token_count + entry_tokens > self.MAX_TOKENS:
-                    entries_to_process = self.buffered_entries
-                    self.buffered_entries = []
-                    self.token_count = 0
-                    gpt_result = self.analyze(entries_to_process)
-                    self.print_to_cli("GPT Analysis Result:", gpt_result)
+                if len(self.buffered_entries) >= BUFFER_SIZE_LIMIT:
+                    self.flush_buffer()
                 else:
                     self.buffered_entries.append(preprocessed_entry)
                     self.token_count += entry_tokens
@@ -66,6 +74,9 @@ class WatchdogGPT(FileSystemEventHandler):
             pattern = r'(\S+) (\S+) (\S+) \[(.*?)\] "(\S+) (\S+) (\S+)" (\d{3}) (\S+)'
         elif format == 'ELFF':
             pattern = r'(\S+) (\S+) (\S+) (\S+) (\S+) \[(.*?)\] "(\S+) (\S+) (\S+)" (\d{3}) (\S+)'
+        else:
+            logging.warning(f"Unsupported log format: {format}")
+            return None
 
         match = re.match(pattern, entry)
 
@@ -100,7 +111,7 @@ class WatchdogGPT(FileSystemEventHandler):
                         {"role": "user", "content": str(log_data)}
                     ]
                 )
-                return result = response.choices[0].message.content.strip()
+                return response.choices[0].message.content.strip()
         except openai.errors.RequestError as e:
             logging.error(f"Request error in GPT analysis: {e}")
         except openai.errors.InvalidRequestError as e:
@@ -121,6 +132,36 @@ class WatchdogGPT(FileSystemEventHandler):
         logging.info("\nResults:")
         logging.info(result)
         logging.info("-" * 80 + "\n")
+
+    def flush_buffer(self):
+        if self.buffered_entries:
+            # Split the buffered entries into chunks for parallel processing
+            chunks = self.split_buffer_into_chunks(self.buffered_entries)
+
+            # Process each chunk in parallel using ThreadPoolExecutor
+            gpt_results = []
+            futures = {self.executor.submit(self.analyze, chunk): chunk for chunk in chunks}
+            for future in concurrent.futures.as_completed(futures):
+                chunk = futures[future]
+                try:
+                    gpt_result = future.result()
+                    gpt_results.append(gpt_result)
+                except Exception as exc:
+                    logging.error(f"An exception occurred while analyzing log entries: {exc}")
+
+            # Combine the results from each chunk and print to CLI
+            combined_result = "\n".join(gpt_results)
+            self.print_to_cli("GPT Analysis Result:", combined_result)
+
+            # Reset the buffer
+            self.buffered_entries = []
+            self.token_count = 0
+
+        self.buffer_flush_timer = threading.Timer(BUFFER_FLUSH_INTERVAL, self.flush_buffer)
+        self.buffer_flush_timer.start()
+
+    def split_buffer_into_chunks(self, buffered_entries, chunk_size=CHUNK_SIZE):
+        return [buffered_entries[i:i + chunk_size] for i in range(0, len(buffered_entries), chunk_size)]
 
     def send_alert(log_entry, gpt_result, pattern_result):
         # Implement preferred alerting mechanism here

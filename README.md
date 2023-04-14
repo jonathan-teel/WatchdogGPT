@@ -7,6 +7,7 @@ WatchdogGPT is a Python script that utilizes OpenAI's GPT models to monitor and 
 - Real-time log file monitoring using the watchdog library
 - Analysis of log entries using OpenAI's GPT models or llama 
 - Detection of suspicious activity and potential hacking attempts
+- Parallelized log entry analysis using concurrent.futures library for improved performance and concurrency
 
 ## Installation
 
@@ -31,8 +32,10 @@ To stop the script, press Ctrl+C.
 
 You can customize the script by modifying the following parameters:
 
-MAX_TOKENS: Adjust the maximum number of tokens to send to the GPT model
-send_alert(): Implement your preferred alerting mechanism (e.g., email, Slack)
+- MAX_TOKENS: Adjust the maximum number of tokens to send to the GPT model
+- send_alert(): Implement your preferred alerting mechanism (e.g., email, Slack)
+- MAX_WORKERS: Adjust for desired level of concurrency
+- CHUNK_SIZE: Adjust for granularity of buffer chunks
 
 ## Supported Models<a name="supported-models"></a>
 
