@@ -8,6 +8,7 @@ WatchdogGPT is a Python script that utilizes OpenAI's GPT models to monitor and 
 - Analysis of log entries using OpenAI's GPT models or llama 
 - Detection of suspicious activity and potential hacking attempts
 - Parallelized log entry analysis using concurrent.futures library for improved performance and concurrency
+- Parallelized api calls (be careful of cost)
 
 ## Installation
 
@@ -16,7 +17,8 @@ WatchdogGPT is a Python script that utilizes OpenAI's GPT models to monitor and 
 3. Copy the .env.example file to .env: `cp .env.example .env`. This is where you will set the following variables:
 4. Set your OpenAI API values in the OPENAI_API_KEY, OPENAPI_API_MODEL variables.
 5. Set your log file information in LOG_FILE_PATH and LOG_FILE_FORMAT
-6. Run the script.
+6. Set your timing/capacity for api calls in BUFFER_FLUSH_INTERVAL and BUFFER_SIZE_LIMIT (Default 60 and 1000)
+7. Run the script.
 
 ## Usage
 
