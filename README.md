@@ -24,7 +24,11 @@ WatchdogGPT is a Python script that utilizes OpenAI's GPT models to monitor and 
 
 Run the script:
 
+Realtime mode - 
 python watchdoggpt.py
+
+History mode -
+python watchdoggpt.py -m history
 
 The script will start monitoring the specified log file, analyzing any new entries, and reporting suspicious activities. The analysis results will be printed to the console and written to a file named watchdoggpt_analysis.log in the same directory.
 

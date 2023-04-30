@@ -10,6 +10,8 @@ from ratelimiter import RateLimiter
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
+import argparse
+import sys
 
 load_dotenv()
 LOG_FILE_PATH = os.getenv("LOG_FILE_PATH")
@@ -184,6 +186,16 @@ class WatchdogGPT(FileSystemEventHandler):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="WatchdogGPT: Log analysis using GPT.")
+    parser.add_argument(
+        "-m",
+        "--mode",
+        choices=["realtime", "history"],
+        default="realtime",
+        help="Choose the mode of operation: realtime (default) or history.",
+    )
+    args = parser.parse_args()
+
     log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'watchdoggpt_analysis.log')
     logging.basicConfig(
         level=logging.INFO,
@@ -194,19 +206,28 @@ def main():
         ]
     )
     wdgpt = WatchdogGPT()
-    observer = Observer()
-    observer.schedule(wdgpt, path=os.path.dirname(LOG_FILE_PATH), recursive=False)
-    observer.start()
-
-    try:
-        stop_event = threading.Event()
-        while not stop_event.is_set():
-            stop_event.wait(1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        observer.stop()
-        observer.join()
+    if args.mode == "realtime":
+        observer = Observer()
+        observer.schedule(wdgpt, path=os.path.dirname(LOG_FILE_PATH), recursive=False)
+        observer.start()
+        try:
+            stop_event = threading.Event()
+            while not stop_event.is_set():
+                stop_event.wait(1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            observer.stop()
+            observer.join()
+    elif args.mode == "history":
+        with open(LOG_FILE_PATH, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                preprocessed_entry = wdgpt.preprocess_log_entry(line, format=LOG_FORMAT)
+                if preprocessed_entry:
+                    wdgpt.buffered_entries.append(preprocessed_entry)
+                    wdgpt.token_count += len(line.split())
+        wdgpt.flush_buffer()
 
 if __name__ == '__main__':
     main()
