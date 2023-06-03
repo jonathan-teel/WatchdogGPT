@@ -1,6 +1,6 @@
 # WatchdogGPT
 
-WatchdogGPT is a Python script that utilizes OpenAI's GPT models to monitor and analyze server access logs in real-time. It detects suspicious activity and potential hacking attempts, providing a concise report for further inspection. Supports two logging formats - CLF and ELFF
+WatchdogGPT is a Python script that utilizes OpenAI's GPT models to monitor and analyze logs in real-time or historical mode. It detects suspicious activity and potential hacking attempts, providing a concise report for further inspection. 
 
 ## Features
 
@@ -14,9 +14,9 @@ WatchdogGPT is a Python script that utilizes OpenAI's GPT models to monitor and 
 
 1. Clone the repository via `git clone https://github.com/yourusername/WatchdogGPT.git` and `cd` into the cloned repository.
 2. Install the required packages: `pip install -r requirements.txt`
-3. Copy the .env.example file to .env: `cp .env.example .env`. This is where you will set the following variables:
+3. Copy the .env.example file to .env: `cp ./watchdoggpt/.env.example ./watchdoggpt/.env`. This is where you will set the following variables:
 4. Set your OpenAI API values in the OPENAI_API_KEY, OPENAPI_API_MODEL variables.
-5. Set your log file information in LOG_FILE_PATH and LOG_FILE_FORMAT
+5. Set your log file information in LOG_FILE_PATH
 6. Set your timing/capacity for api calls in BUFFER_FLUSH_INTERVAL and BUFFER_SIZE_LIMIT (Default 60 and 1000)
 7. Run the script.
 
@@ -25,10 +25,13 @@ WatchdogGPT is a Python script that utilizes OpenAI's GPT models to monitor and 
 Run the script:
 
 Realtime mode - 
-python watchdoggpt.py
+python main.py
 
 History mode -
-python watchdoggpt.py -m history
+python main.py -m history
+
+Passing log file - 
+python main.py -l output.log
 
 The script will start monitoring the specified log file, analyzing any new entries, and reporting suspicious activities. The analysis results will be printed to the console and written to a file named watchdoggpt_analysis.log in the same directory.
 
@@ -45,7 +48,7 @@ You can customize the script by modifying the following parameters:
 
 ## Supported Models<a name="supported-models"></a>
 
-This script works with all OpenAI models, as well as Llama through Llama.cpp. Default model is **gpt-3.5-turbo**. To use a different model, specify it through OPENAI_API_MODEL.
+This script works with all OpenAI GPT models, as well as Llama through Llama.cpp. Default model is **gpt-3.5-turbo**. To use a different model, specify it through OPENAI_API_MODEL.
 
 ### Llama
 

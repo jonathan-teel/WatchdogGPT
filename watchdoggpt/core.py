@@ -7,27 +7,9 @@ import threading
 import openai
 import concurrent.futures
 from ratelimiter import RateLimiter
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
-import argparse
-import sys
-
-load_dotenv()
-LOG_FILE_PATH = os.getenv("LOG_FILE_PATH")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-LOG_FORMAT = os.getenv("LOG_FILE_FORMAT")
-# Default model is gpt-3.5-turbo
-OPENAI_API_MODEL = os.getenv("OPENAI_API_MODEL", "gpt-3.5-turbo")
-# Default flush interval is 60 seconds
-BUFFER_FLUSH_INTERVAL = int(os.getenv("BUFFER_FLUSH_INTERVAL", 60))  
-# Default buffer size limit is 1000 entries
-BUFFER_SIZE_LIMIT = int(os.getenv("BUFFER_SIZE_LIMIT", 1000))  
-
-# Determines the number of worker threads used for parallel processing. Adjust based on the available CPU resources and the desired level of concurrency
-MAX_WORKERS = 4
-# Adjust chunk_size based on desired granularity
-CHUNK_SIZE = 500
+from watchdoggpt.config import LOG_FILE_PATH, OPENAI_API_KEY, OPENAI_API_MODEL, BUFFER_FLUSH_INTERVAL, BUFFER_SIZE_LIMIT, MAX_WORKERS, CHUNK_SIZE
 
 class WatchdogGPT(FileSystemEventHandler):
 
@@ -48,15 +30,13 @@ class WatchdogGPT(FileSystemEventHandler):
         new_entries = self.read_buffered_log_entries()
 
         for entry in new_entries:
-            preprocessed_entry = self.preprocess_log_entry(entry, format=LOG_FORMAT)
-
-            if preprocessed_entry:
+            if entry:
                 entry_tokens = len(entry.split())
 
                 if len(self.buffered_entries) >= BUFFER_SIZE_LIMIT:
                     self.flush_buffer()
                 else:
-                    self.buffered_entries.append(preprocessed_entry)
+                    self.buffered_entries.append(entry)
                     self.token_count += entry_tokens
             else:
                 logging.warning(f"Failed to preprocess log entry: {entry.strip()}")
@@ -71,22 +51,6 @@ class WatchdogGPT(FileSystemEventHandler):
                 new_entries = lines[-1:]  # Adjust this value to read more lines per update
 
         return new_entries
-
-    def preprocess_log_entry(self, entry, format='CLF'):
-        if format == 'CLF':
-            pattern = r'(\S+) (\S+) (\S+) \[(.*?)\] "(\S+) (\S+) (\S+)" (\d{3}) (\S+)'
-        elif format == 'ELFF':
-            pattern = r'(\S+) (\S+) (\S+) (\S+) (\S+) \[(.*?)\] "(\S+) (\S+) (\S+)" (\d{3}) (\S+)'
-        else:
-            logging.warning(f"Unsupported log format: {format}")
-            return None
-
-        match = re.match(pattern, entry)
-
-        if match:
-            return match.groups()
-
-        return None
 
     def analyze(self, log_data_chunks):
         openai.api_key = OPENAI_API_KEY
@@ -184,50 +148,3 @@ class WatchdogGPT(FileSystemEventHandler):
         # Implement preferred alerting mechanism here
         pass
 
-
-def main():
-    parser = argparse.ArgumentParser(description="WatchdogGPT: Log analysis using GPT.")
-    parser.add_argument(
-        "-m",
-        "--mode",
-        choices=["realtime", "history"],
-        default="realtime",
-        help="Choose the mode of operation: realtime (default) or history.",
-    )
-    args = parser.parse_args()
-
-    log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'watchdoggpt_analysis.log')
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(log_file_path)
-        ]
-    )
-    wdgpt = WatchdogGPT()
-    if args.mode == "realtime":
-        observer = Observer()
-        observer.schedule(wdgpt, path=os.path.dirname(LOG_FILE_PATH), recursive=False)
-        observer.start()
-        try:
-            stop_event = threading.Event()
-            while not stop_event.is_set():
-                stop_event.wait(1)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            observer.stop()
-            observer.join()
-    elif args.mode == "history":
-        with open(LOG_FILE_PATH, "r") as f:
-            lines = f.readlines()
-            for line in lines:
-                preprocessed_entry = wdgpt.preprocess_log_entry(line, format=LOG_FORMAT)
-                if preprocessed_entry:
-                    wdgpt.buffered_entries.append(preprocessed_entry)
-                    wdgpt.token_count += len(line.split())
-        wdgpt.flush_buffer()
-
-if __name__ == '__main__':
-    main()
