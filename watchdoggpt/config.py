@@ -10,6 +10,9 @@ OPENAI_API_MODEL = os.getenv("OPENAI_API_MODEL", "gpt-3.5-turbo")
 BUFFER_FLUSH_INTERVAL = int(os.getenv("BUFFER_FLUSH_INTERVAL", 60))  
 # Default buffer size limit is 1000 entries
 BUFFER_SIZE_LIMIT = int(os.getenv("BUFFER_SIZE_LIMIT", 1000))  
+# Hugging face API
+HUGGING_FACE_API_KEY = os.getenv("HUGGING_FACE_API_KEY", "none")
+HUGGING_FACE_MODEL = os.getenv("HUGGING_FACE_MODEL")
 
 # Determines the number of worker threads used for parallel processing. Adjust based on the available CPU resources and the desired level of concurrency
 MAX_WORKERS = 4

@@ -30,8 +30,8 @@ python main.py
 History mode -
 python main.py -m history
 
-Passing log file - 
-python main.py -l output.log
+Passing output file - 
+python main.py -o output.log
 
 The script will start monitoring the specified log file, analyzing any new entries, and reporting suspicious activities. The analysis results will be printed to the console and written to a file named watchdoggpt_analysis.log in the same directory.
 

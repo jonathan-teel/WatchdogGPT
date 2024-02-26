@@ -18,10 +18,10 @@ def main():
         help="Choose the mode of operation: realtime (default) or history.",
     )
     parser.add_argument(
-        "-l",
-        "--log",
-        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'watchdoggpt_analysis.log'),
-        help="Path to the log file.",
+        "-o",
+        "--output",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'watchdoggpt_analysis_output.log'),
+        help="Path to the output file.",
     )
     args = parser.parse_args()
 
