@@ -281,13 +281,7 @@ class OpenAIAnalyzer:
     def analyze_chunk(self, entries: Sequence[str]) -> AnalysisResult:
         lines = [entry for entry in entries if entry and entry.strip()]
         if not lines:
-            return AnalysisResult(
-                entries=[],
-                suspicious=False,
-                summary="No non-empty log entries to analyze.",
-                findings=[],
-                model=self.settings.openai_api_model,
-            )
+            return self._empty_result([], "No non-empty log entries to analyze.")
 
         payload = self._format_entries(lines)
         last_error: Exception | None = None
@@ -311,48 +305,14 @@ class OpenAIAnalyzer:
                 )
                 parsed = response.output_parsed
                 if parsed is None:
-                    return AnalysisResult(
-                        entries=list(lines),
-                        suspicious=False,
-                        summary="The model returned no structured output.",
-                        findings=[],
-                        model=self.settings.openai_api_model,
+                    return self._error_result(
+                        lines,
+                        "The model returned no structured output.",
                         response_id=response.id,
                         error="missing_structured_output",
                     )
 
-                usage = getattr(response, "usage", None)
-                cached_tokens = None
-                if usage is not None:
-                    input_details = getattr(usage, "input_tokens_details", None)
-                    cached_tokens = getattr(input_details, "cached_tokens", None)
-
-                findings = [
-                    DetectionFinding(
-                        severity=finding.severity,
-                        confidence=finding.confidence,
-                        category=finding.category,
-                        summary=finding.summary,
-                        evidence_lines=finding.evidence_lines,
-                        source_ips=finding.source_ips,
-                        indicators=finding.indicators,
-                        recommended_action=finding.recommended_action,
-                        dedupe_key=finding.dedupe_key,
-                    )
-                    for finding in parsed.findings
-                ]
-
-                suspicious = parsed.suspicious or bool(findings)
-                summary = parsed.summary.strip() or "No suspicious activity detected."
-                return AnalysisResult(
-                    entries=list(lines),
-                    suspicious=suspicious,
-                    summary=summary,
-                    findings=findings,
-                    model=self.settings.openai_api_model,
-                    response_id=response.id,
-                    cached_tokens=cached_tokens,
-                )
+                return self._result_from_response(lines, response, parsed)
             except (RateLimitError, APIConnectionError, APITimeoutError) as exc:
                 last_error = exc
             except APIStatusError as exc:
@@ -367,12 +327,9 @@ class OpenAIAnalyzer:
                 delay = self.settings.initial_retry_backoff_seconds * (2**attempt)
                 time.sleep(delay)
 
-        return AnalysisResult(
-            entries=list(lines),
-            suspicious=False,
-            summary="Analysis failed after retries.",
-            findings=[],
-            model=self.settings.openai_api_model,
+        return self._error_result(
+            lines,
+            "Analysis failed after retries.",
             error=str(last_error) if last_error else "unknown_openai_error",
         )
 
@@ -419,6 +376,75 @@ class OpenAIAnalyzer:
             ],
         }
         return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+    def _result_from_response(
+        self,
+        lines: Sequence[str],
+        response: object,
+        parsed: ModelBatchAssessment,
+    ) -> AnalysisResult:
+        findings = [self._to_detection_finding(finding) for finding in parsed.findings]
+        suspicious = parsed.suspicious or bool(findings)
+        summary = parsed.summary.strip() or "No suspicious activity detected."
+        return AnalysisResult(
+            entries=list(lines),
+            suspicious=suspicious,
+            summary=summary,
+            findings=findings,
+            model=self.settings.openai_api_model,
+            response_id=getattr(response, "id", None),
+            cached_tokens=self._extract_cached_tokens(response),
+        )
+
+    @staticmethod
+    def _to_detection_finding(finding: ModelFinding) -> DetectionFinding:
+        return DetectionFinding(
+            severity=finding.severity,
+            confidence=finding.confidence,
+            category=finding.category,
+            summary=finding.summary,
+            evidence_lines=finding.evidence_lines,
+            source_ips=finding.source_ips,
+            indicators=finding.indicators,
+            recommended_action=finding.recommended_action,
+            dedupe_key=finding.dedupe_key,
+        )
+
+    @staticmethod
+    def _extract_cached_tokens(response: object) -> int | None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+
+        input_details = getattr(usage, "input_tokens_details", None)
+        return getattr(input_details, "cached_tokens", None)
+
+    def _empty_result(self, entries: Sequence[str], summary: str) -> AnalysisResult:
+        return AnalysisResult(
+            entries=list(entries),
+            suspicious=False,
+            summary=summary,
+            findings=[],
+            model=self.settings.openai_api_model,
+        )
+
+    def _error_result(
+        self,
+        entries: Sequence[str],
+        summary: str,
+        *,
+        response_id: str | None = None,
+        error: str | None = None,
+    ) -> AnalysisResult:
+        return AnalysisResult(
+            entries=list(entries),
+            suspicious=False,
+            summary=summary,
+            findings=[],
+            model=self.settings.openai_api_model,
+            response_id=response_id,
+            error=error,
+        )
 
 
 class LogTailer:
@@ -578,25 +604,19 @@ class WatchdogGPT(FileSystemEventHandler):
 
         with self._buffer_lock:
             self._buffer.extend(normalized_entries)
-            should_flush = len(self._buffer) >= self.settings.buffer_size_limit
+            should_flush = self._buffer_reached_flush_limit()
 
         if should_flush:
-            self._flush_event.set()
+            self._request_flush()
 
     def flush_now(self) -> list[AnalysisResult]:
         with self._flush_lock:
-            with self._buffer_lock:
-                if not self._buffer:
-                    return []
-                entries = self._buffer
-                self._buffer = []
-
+            entries = self._take_buffered_entries()
+            if not entries:
+                return []
             chunks = self._split_into_chunks(entries)
             results = self._analyze_chunks(chunks)
-            for result in results:
-                self._log_result(result)
-                if result.suspicious and result.findings and result.error is None:
-                    self.alert_sink.emit(result)
+            self._handle_results(results)
             return results
 
     def _flush_loop(self) -> None:
@@ -668,6 +688,30 @@ class WatchdogGPT(FileSystemEventHandler):
             )
 
         logging.info("-" * 80)
+
+    def _take_buffered_entries(self) -> list[str]:
+        with self._buffer_lock:
+            if not self._buffer:
+                return []
+            entries = self._buffer
+            self._buffer = []
+            return entries
+
+    def _buffer_reached_flush_limit(self) -> bool:
+        return len(self._buffer) >= self.settings.buffer_size_limit
+
+    def _request_flush(self) -> None:
+        self._flush_event.set()
+
+    def _handle_results(self, results: Sequence[AnalysisResult]) -> None:
+        for result in results:
+            self._log_result(result)
+            if self._should_emit_alert(result):
+                self.alert_sink.emit(result)
+
+    @staticmethod
+    def _should_emit_alert(result: AnalysisResult) -> bool:
+        return result.suspicious and bool(result.findings) and result.error is None
 
     def _is_target_event(self, event: FileSystemEvent) -> bool:
         if event.is_directory:
