@@ -7,6 +7,8 @@ WatchdogGPT monitors a server log file, batches new entries safely, and uses an 
 - Tracks file offsets instead of rereading the last line, so appended bursts are not dropped.
 - Handles partial writes, truncation, and log rotation.
 - Uses the modern OpenAI Python client and structured JSON responses.
+- Groups related entries by recurring actor/session/request indicators before analysis.
+- Hardens the prompt boundary by serializing log lines as JSON and flagging prompt-like payloads as hostile data.
 - Replaces the broken timer/thread-pool design with a single buffered flush loop.
 - Supports optional webhook alerts for suspicious batches.
 
@@ -62,12 +64,15 @@ python main.py --output output.log
 - `BUFFER_FLUSH_INTERVAL`: seconds between scheduled flushes.
 - `BUFFER_SIZE_LIMIT`: flush immediately when the in-memory buffer reaches this many lines.
 - `CHUNK_SIZE`: max lines per LLM request.
+- `SEQUENCE_GAP_LINES`: max line distance for continuing the same inferred event sequence.
 - `MAX_WORKERS`: number of chunk analyses to run in parallel during a flush.
+- `MAX_ENTRY_CHARACTERS`: per-line character cap before truncation markers are applied.
 - `ALERT_WEBHOOK_URL`: optional webhook that receives suspicious findings as JSON.
 
 ## Notes
 
 - The log file contents are treated as untrusted input in the model prompt.
+- Embedded strings such as `ignore previous instructions` are annotated as hostile log content, not followed.
 - History mode uses the same batching pipeline as realtime mode.
 - Alerts are logged to stdout and the output file; webhook delivery is optional.
 

@@ -36,6 +36,8 @@ class Settings:
     alert_webhook_url: str | None
     openai_reasoning_effort: str
     prompt_cache_key: str
+    sequence_gap_lines: int
+    max_entry_characters: int
 
 
 def _read_int(name: str, default: int, *, minimum: int = 1) -> int:
@@ -101,4 +103,6 @@ def load_settings(output_file_path: str | None = None) -> Settings:
         alert_webhook_url=os.getenv("ALERT_WEBHOOK_URL"),
         openai_reasoning_effort=reasoning_effort,
         prompt_cache_key=os.getenv("PROMPT_CACHE_KEY", "watchdoggpt-analysis-v2"),
+        sequence_gap_lines=_read_int("SEQUENCE_GAP_LINES", 20),
+        max_entry_characters=_read_int("MAX_ENTRY_CHARACTERS", 2000),
     )
