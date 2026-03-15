@@ -1,4 +1,4 @@
-openai
-python-dotenv
-watchdog
-ratelimiter
+openai>=2.14.0,<3
+pydantic>=2.0,<3
+python-dotenv>=1.0,<2
+watchdog>=6.0,<7

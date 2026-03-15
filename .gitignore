@@ -1,3 +1,5 @@
 watchdoggpt/.env
 models/
 llama/
+__pycache__/
+*.pyc

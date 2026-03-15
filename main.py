@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-import os
-import logging
-import threading
-from watchdog.observers import Observer
+from __future__ import annotations
+
 import argparse
+import time
+
+from watchdog.observers import Observer
+
+from watchdoggpt.config import DEFAULT_OUTPUT_FILENAME, ConfigurationError, load_settings
 from watchdoggpt.core import WatchdogGPT
 from watchdoggpt.logging import setup_logging
-from watchdoggpt.config import LOG_FILE_PATH
 
-def main():
-    parser = argparse.ArgumentParser(description="WatchdogGPT: Log analysis using GPT.")
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="WatchdogGPT: real-time log analysis with LLMs.")
     parser.add_argument(
         "-m",
         "--mode",
@@ -20,35 +23,48 @@ def main():
     parser.add_argument(
         "-o",
         "--output",
-        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'watchdoggpt_analysis_output.log'),
-        help="Path to the output file.",
+        default=DEFAULT_OUTPUT_FILENAME,
+        help="Path to the analysis output log file.",
     )
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
 
-    setup_logging(args.log)
+    try:
+        settings = load_settings(output_file_path=args.output)
+    except ConfigurationError as exc:
+        raise SystemExit(str(exc)) from exc
 
-    wdgpt = WatchdogGPT()
-    if args.mode == "realtime":
-        observer = Observer()
-        observer.schedule(wdgpt, path=os.path.dirname(LOG_FILE_PATH), recursive=False)
-        observer.start()
+    setup_logging(settings.output_file_path)
+    try:
+        watchdog = WatchdogGPT(settings, follow_from_end=args.mode == "realtime")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if args.mode == "history":
         try:
-            stop_event = threading.Event()
-            while not stop_event.is_set():
-                stop_event.wait(1)
-        except KeyboardInterrupt:
-            pass
+            watchdog.process_history()
         finally:
-            observer.stop()
-            observer.join()
-    elif args.mode == "history":
-        with open(LOG_FILE_PATH, "r") as f:
-            lines = f.readlines()
-            for line in lines:
-                if line:
-                    wdgpt.buffered_entries.append(line)
-                    wdgpt.token_count += len(line.split())
-        wdgpt.flush_buffer()
+            watchdog.close()
+        return
 
-if __name__ == '__main__':
+    observer = Observer()
+    observer.schedule(watchdog, path=str(settings.log_file_path.parent), recursive=False)
+    watchdog.start()
+    observer.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        observer.stop()
+        observer.join()
+        watchdog.close()
+
+
+if __name__ == "__main__":
     main()
