@@ -263,7 +263,7 @@ class SequenceAwareChunker:
 
 
 class OpenAIAnalyzer:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, client: object | None = None) -> None:
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required for the OpenAI analyzer.")
 
@@ -272,7 +272,7 @@ class OpenAIAnalyzer:
             client_kwargs["base_url"] = settings.openai_base_url
 
         self.settings = settings
-        self.client = OpenAI(**client_kwargs)
+        self.client = client or OpenAI(**client_kwargs)
         self.rate_limiter = RequestRateLimiter(
             max_calls=settings.max_api_calls_per_period,
             period_seconds=settings.api_rate_limit_period,
@@ -555,13 +555,21 @@ class WatchdogGPT(FileSystemEventHandler):
             self.process_log_update()
 
     def process_log_update(self) -> None:
-        new_entries = self.tailer.read_new_entries()
-        if new_entries:
-            self.enqueue_entries(new_entries)
+        self.process_entries(self.tailer.read_new_entries())
 
     def process_history(self) -> list[AnalysisResult]:
-        self.enqueue_entries(self.tailer.read_all_entries())
-        return self.flush_now()
+        return self.process_entries(self.tailer.read_all_entries(), flush=True)
+
+    def process_entries(
+        self,
+        entries: Sequence[str],
+        *,
+        flush: bool = False,
+    ) -> list[AnalysisResult]:
+        self.enqueue_entries(entries)
+        if flush:
+            return self.flush_now()
+        return []
 
     def enqueue_entries(self, entries: Sequence[str]) -> None:
         normalized_entries = [entry for entry in entries if entry and entry.strip()]

@@ -6,7 +6,7 @@ WatchdogGPT monitors a server log file, batches new entries safely, and uses an 
 
 - Tracks file offsets instead of rereading the last line, so appended bursts are not dropped.
 - Handles partial writes, truncation, and log rotation.
-- Uses the modern OpenAI Python client and structured JSON responses.
+- Uses the modern OpenAI Python client with Responses API structured outputs.
 - Groups related entries by recurring actor/session/request indicators before analysis.
 - Hardens the prompt boundary by serializing log lines as JSON and flagging prompt-like payloads as hostile data.
 - Replaces the broken timer/thread-pool design with a single buffered flush loop.
@@ -73,7 +73,7 @@ python main.py --output output.log
 
 - The log file contents are treated as untrusted input in the model prompt.
 - Embedded strings such as `ignore previous instructions` are annotated as hostile log content, not followed.
-- History mode uses the same batching pipeline as realtime mode.
+- History mode and realtime mode both flow through the same `process_entries -> flush_now -> analyze` pipeline.
 - Alerts are logged to stdout and the output file; webhook delivery is optional.
 
 ## Testing
